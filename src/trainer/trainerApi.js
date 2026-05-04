@@ -7,9 +7,16 @@ function computeLastActivity(user) {
   return d ? new Date(d).toISOString() : null;
 }
 
-async function getTelegramPhotoUrl({ botToken, telegramUserId }) {
-  if (!botToken) return null;
-  if (!telegramUserId) return null;
+function buildUsernamePhotoFallback(username) {
+  const u = String(username || '').replace(/^@/, '').trim();
+  if (!u) return null;
+  // Public Telegram avatar endpoint (works without bot file API).
+  return `https://t.me/i/userpic/320/${encodeURIComponent(u)}.jpg`;
+}
+
+async function getTelegramPhotoUrl({ botToken, telegramUserId, username }) {
+  const fallback = buildUsernamePhotoFallback(username);
+  if (!botToken || !telegramUserId) return fallback;
 
   try {
     const photos = await axios.get(`https://api.telegram.org/bot${botToken}/getUserProfilePhotos`, {
@@ -25,10 +32,10 @@ async function getTelegramPhotoUrl({ botToken, telegramUserId }) {
       timeout: 8000,
     });
     const filePath = file?.data?.result?.file_path;
-    if (!filePath) return null;
+    if (!filePath) return fallback;
     return `https://api.telegram.org/file/bot${botToken}/${filePath}`;
   } catch (e) {
-    return null;
+    return fallback;
   }
 }
 
@@ -82,7 +89,11 @@ function createTrainerApi({ auth, botToken, botUsername }) {
 
     const payload = await Promise.all(
       users.map(async (u) => {
-        const photoUrl = await getTelegramPhotoUrl({ botToken, telegramUserId: u.telegramId });
+        const photoUrl = await getTelegramPhotoUrl({
+          botToken,
+          telegramUserId: u.telegramId,
+          username: u.username,
+        });
         const questionnaireSortDate =
           u.questionnaireUpdatedAt || u.questionnaire?.updatedAt || u.questionnaire?.createdAt || null;
         return {
@@ -107,6 +118,8 @@ function createTrainerApi({ auth, botToken, botUsername }) {
                 restrictions: u.questionnaire.restrictions,
                 problems: u.questionnaire.problems,
                 comment: u.questionnaire.comment,
+                tdeeCalories: u.questionnaire.tdeeCalories,
+                recommendedCalorieDelta: u.questionnaire.recommendedCalorieDelta,
                 createdAt: u.questionnaire.createdAt,
                 updatedAt: u.questionnaire.updatedAt,
               }
@@ -157,7 +170,11 @@ function createTrainerApi({ auth, botToken, botUsername }) {
     });
     if (!user) return res.status(404).json({ ok: false, error: 'not_found' });
 
-    const photoUrl = await getTelegramPhotoUrl({ botToken, telegramUserId: user.telegramId });
+    const photoUrl = await getTelegramPhotoUrl({
+      botToken,
+      telegramUserId: user.telegramId,
+      username: user.username,
+    });
     const lastActivityAt = computeLastActivity(user);
 
     res.json({
@@ -174,7 +191,10 @@ function createTrainerApi({ auth, botToken, botUsername }) {
         questionnaire: user.questionnaire ? user.questionnaire.toJSON?.() || user.questionnaire : null,
         current: {
           weight: user.questionnaire?.weight ?? null,
-          calories: null, // заглушка
+          calories:
+            user.questionnaire?.tdeeCalories != null && user.questionnaire?.recommendedCalorieDelta != null
+              ? user.questionnaire.tdeeCalories + user.questionnaire.recommendedCalorieDelta
+              : null,
         },
       },
     });

@@ -75,6 +75,18 @@ const UserQuestionnaire = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+
+    // Расчетные показатели
+    tdeeCalories: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'tdee_calories',
+    },
+    recommendedCalorieDelta: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'recommended_calorie_delta',
+    },
   },
   {
     tableName: 'user_questionnaires', // имя таблицы в БД
