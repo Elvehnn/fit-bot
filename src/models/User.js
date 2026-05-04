@@ -57,6 +57,11 @@ const User = sequelize.define(
       allowNull: true,
       field: 'trainer_id',
     },
+    trainerLinkedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'trainer_linked_at',
+    },
   },
   {
     tableName: 'users',

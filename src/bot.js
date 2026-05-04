@@ -3,6 +3,7 @@ const { Telegraf, session, Scenes } = require('telegraf');
 const config = require('./config');
 const initDatabase = require('./models/initDB');
 const { User, UserQuestionnaire, TrainerInvite, Trainer } = require('./models/associations');
+const sequelize = require('./models/database');
 const { startAdminServer } = require('./admin/startAdminServer');
 
 const bot = new Telegraf(config.bot.token);
@@ -422,31 +423,19 @@ const isAdmin = (telegramId) => {
   return ids.includes(Number(telegramId));
 };
 
-// ========== ОБРАБОТЧИКИ КОМАНД ==========
-bot.command('start', async (ctx) => {
+async function resolveTrainerDisplayName(ctx, trainerTelegramId) {
   try {
-    const text = String(ctx.message?.text || '');
-    const payload = text.startsWith('/start') ? text.replace('/start', '').trim() : '';
-    if (payload.startsWith('invite_')) {
-      const code = payload.replace('invite_', '').trim();
-      if (code) {
-        const invite = await TrainerInvite.findOne({ where: { code } });
-        if (!invite) {
-          await ctx.reply('❌ Приглашение не найдено. Проверьте ссылку.');
-        } else if (invite.usedAt || invite.usedByUserId) {
-          await ctx.reply('❌ Этот код уже использован. Попросите тренера создать новую ссылку.');
-        } else {
-          const user = await createOrGetUser(ctx.from);
-          await user.update({ trainerId: invite.trainerId });
-          await invite.update({ usedAt: new Date(), usedByUserId: user.id });
-          await ctx.reply('✅ Вы успешно привязаны к тренеру.');
-        }
-      }
-    }
+    const chat = await ctx.telegram.getChat(trainerTelegramId);
+    const parts = [chat.first_name, chat.last_name].filter(Boolean);
+    if (parts.length) return parts.join(' ');
+    if (chat.username) return `@${chat.username}`;
   } catch (e) {
-    console.error('Ошибка обработки invite:', e);
+    // бот мог ещё не видеть чат с тренером
   }
+  return null;
+}
 
+const sendDefaultStartWelcome = async (ctx) => {
   await ctx.reply(`Привет, ${ctx.from.first_name}! 👋  
 Я — бот‑ассистент по питанию, который работает вместе с нутрициологом‑экспертом.  
 
@@ -459,6 +448,98 @@ bot.command('start', async (ctx) => {
 Готов(а) заполнить анкету? 🙂`);
 
   await showMainMenu(ctx);
+};
+
+// ========== ОБРАБОТЧИКИ КОМАНД ==========
+bot.command('start', async (ctx) => {
+  const text = String(ctx.message?.text || '');
+  const payload = text.replace(/^\/start\s*/, '').trim();
+
+  const handleInviteDeepLink = async () => {
+    const code = payload.slice('invite_'.length).trim();
+    if (!code) return false;
+
+    try {
+      const user = await createOrGetUser(ctx.from);
+
+      if (user.trainerId != null) {
+        await ctx.reply(
+          'Вы уже привязаны к тренеру. Если хотите сменить тренера — обратитесь к текущему тренеру.'
+        );
+        await sendDefaultStartWelcome(ctx);
+        return true;
+      }
+
+      let outcome = { ok: false, trainerTelegramId: null };
+
+      await sequelize.transaction(async (transaction) => {
+        const invite = await TrainerInvite.findOne({
+          where: { code },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+
+        if (!invite || invite.usedAt || invite.usedByUserId) {
+          return;
+        }
+
+        const trainer = await Trainer.findByPk(invite.trainerId, { transaction });
+        if (!trainer) {
+          return;
+        }
+
+        await user.update(
+          { trainerId: invite.trainerId, trainerLinkedAt: new Date() },
+          { transaction }
+        );
+        await invite.update(
+          {
+            usedAt: new Date(),
+            usedByUserId: user.id,
+          },
+          { transaction }
+        );
+
+        outcome = { ok: true, trainerTelegramId: trainer.telegramId };
+      });
+
+      if (!outcome.ok) {
+        await ctx.reply('Ссылка недействительна. Запросите новую у вашего тренера.');
+        await sendDefaultStartWelcome(ctx);
+        return true;
+      }
+
+      await user.reload();
+      const tn = outcome.trainerTelegramId != null ? await resolveTrainerDisplayName(ctx, outcome.trainerTelegramId) : null;
+      const bindText = tn
+        ? `✅ Вы привязаны к тренеру ${tn}. Теперь тренер видит ваш прогресс.`
+        : '✅ Вы привязаны к тренеру. Теперь тренер видит ваш прогресс.';
+      await ctx.reply(bindText);
+
+      if (!user.hasQuestionnaire) {
+        await ctx.reply('Отлично! Начнем заполнение анкеты. 🍏', {
+          reply_markup: { remove_keyboard: true },
+        });
+        await ctx.scene.enter('QUESTIONNAIRE_SCENE');
+        return true;
+      }
+
+      await showMainMenu(ctx);
+      return true;
+    } catch (e) {
+      console.error('Ошибка обработки invite:', e);
+      await ctx.reply('❌ Не удалось обработать ссылку. Попробуйте позже или запросите новую у тренера.');
+      await sendDefaultStartWelcome(ctx);
+      return true;
+    }
+  };
+
+  if (payload.startsWith('invite_')) {
+    const handled = await handleInviteDeepLink();
+    if (handled) return;
+  }
+
+  await sendDefaultStartWelcome(ctx);
 });
 
 bot.command('admin', async (ctx) => {

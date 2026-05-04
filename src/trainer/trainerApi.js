@@ -1,7 +1,5 @@
 const crypto = require('crypto');
 const axios = require('axios');
-const { Op } = require('sequelize');
-
 const { User, UserQuestionnaire, TrainerInvite } = require('../models/associations');
 
 function computeLastActivity(user) {
@@ -34,8 +32,24 @@ async function getTelegramPhotoUrl({ botToken, telegramUserId }) {
   }
 }
 
-function makeInviteCode() {
-  return crypto.randomBytes(16).toString('hex');
+/** Код после префикса invite_ в deep link (лимит ~57 символов без «invite_»). */
+function makeInviteCodeForTrainer(trainerId) {
+  const suffix = crypto.randomBytes(4).toString('hex');
+  return `trainer${trainerId}_${suffix}`;
+}
+
+async function createTrainerInvite(trainerId) {
+  for (let i = 0; i < 12; i += 1) {
+    const code = makeInviteCodeForTrainer(trainerId);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await TrainerInvite.create({ trainerId, code });
+    } catch (e) {
+      if (e?.name === 'SequelizeUniqueConstraintError') continue;
+      throw e;
+    }
+  }
+  throw new Error('invite_code_collision');
 }
 
 function buildInviteLink({ botUsername, code }) {
@@ -51,20 +65,52 @@ function createTrainerApi({ auth, botToken, botUsername }) {
 
   router.get('/clients', auth, async (req, res) => {
     const trainerId = req.trainer.id;
+    const raw = typeof req.query.hasQuestionnaire === 'string' ? req.query.hasQuestionnaire : 'any';
+    const normalized = raw.trim().toLowerCase();
+    let where = { trainerId };
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') where = { ...where, hasQuestionnaire: true };
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') where = { ...where, hasQuestionnaire: false };
+
     const users = await User.findAll({
-      where: { trainerId },
+      where,
+      order: [['createdAt', 'DESC']],
       include: [{ model: UserQuestionnaire, as: 'questionnaire', required: false }],
     });
+
+    const sortMode = typeof req.query.sort === 'string' ? req.query.sort.trim().toLowerCase() : 'activity';
+    const orderDir = typeof req.query.order === 'string' ? req.query.order.trim().toLowerCase() : 'desc';
 
     const payload = await Promise.all(
       users.map(async (u) => {
         const photoUrl = await getTelegramPhotoUrl({ botToken, telegramUserId: u.telegramId });
+        const questionnaireSortDate =
+          u.questionnaireUpdatedAt || u.questionnaire?.updatedAt || u.questionnaire?.createdAt || null;
         return {
           id: u.id,
           telegramId: u.telegramId,
           username: u.username,
           firstName: u.firstName,
           lastName: u.lastName,
+          createdAt: u.createdAt,
+          updatedAt: u.updatedAt,
+          hasQuestionnaire: u.hasQuestionnaire,
+          questionnaireUpdatedAt: u.questionnaireUpdatedAt,
+          questionnaireSortDate,
+          questionnaire: u.questionnaire
+            ? {
+                age: u.questionnaire.age,
+                gender: u.questionnaire.gender,
+                weight: u.questionnaire.weight,
+                height: u.questionnaire.height,
+                goal: u.questionnaire.goal,
+                lifestyle: u.questionnaire.lifestyle,
+                restrictions: u.questionnaire.restrictions,
+                problems: u.questionnaire.problems,
+                comment: u.questionnaire.comment,
+                createdAt: u.questionnaire.createdAt,
+                updatedAt: u.questionnaire.updatedAt,
+              }
+            : null,
           photoUrl,
           lastActivityAt: computeLastActivity(u),
           adherence7d: null, // заглушка
@@ -72,11 +118,30 @@ function createTrainerApi({ auth, botToken, botUsername }) {
       })
     );
 
-    payload.sort((a, b) => {
-      const da = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
-      const db = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
-      return db - da;
-    });
+    const missed = (c) => {
+      const now = Date.now();
+      if (!c.lastActivityAt) return true;
+      const t = new Date(c.lastActivityAt).getTime();
+      if (!Number.isFinite(t)) return true;
+      return now - t >= 1000 * 60 * 60 * 24 * 2;
+    };
+
+    if (sortMode === 'questionnairedate') {
+      payload.sort((a, b) => {
+        const da = a.questionnaireSortDate ? new Date(a.questionnaireSortDate).getTime() : 0;
+        const db = b.questionnaireSortDate ? new Date(b.questionnaireSortDate).getTime() : 0;
+        return orderDir === 'asc' ? da - db : db - da;
+      });
+    } else {
+      payload.sort((a, b) => {
+        const ma = missed(a) ? 1 : 0;
+        const mb = missed(b) ? 1 : 0;
+        if (ma !== mb) return mb - ma;
+        const da = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+        const db = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+        return orderDir === 'asc' ? da - db : db - da;
+      });
+    }
 
     res.json({ ok: true, clients: payload });
   });
@@ -118,14 +183,7 @@ function createTrainerApi({ auth, botToken, botUsername }) {
   router.post('/invite', auth, async (req, res) => {
     const trainerId = req.trainer.id;
 
-    // (опционально) чистка старых неиспользованных кодов
-    const olderThan = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30);
-    await TrainerInvite.destroy({
-      where: { trainerId, usedAt: { [Op.is]: null }, createdAt: { [Op.lt]: olderThan } },
-    }).catch(() => {});
-
-    const code = makeInviteCode();
-    const invite = await TrainerInvite.create({ trainerId, code });
+    const invite = await createTrainerInvite(trainerId);
 
     res.json({
       ok: true,

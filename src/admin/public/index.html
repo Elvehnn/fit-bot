@@ -29,6 +29,7 @@
       }
       .top {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
@@ -38,10 +39,22 @@
         font-size: 18px;
         font-weight: 700;
       }
+      .nav-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .nav-row button.active {
+        border-color: var(--accent);
+        color: #fff;
+        background: rgba(76, 141, 255, 0.15);
+      }
       .controls {
         display: flex;
         gap: 8px;
         align-items: center;
+        flex-wrap: wrap;
       }
       select,
       button {
@@ -69,6 +82,12 @@
         border-radius: 14px;
         overflow: hidden;
       }
+      .card-pad {
+        padding: 16px;
+      }
+      .hidden {
+        display: none !important;
+      }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -85,6 +104,31 @@
         color: var(--muted);
         font-weight: 600;
         background: rgba(255, 255, 255, 0.02);
+      }
+      tr.row-click {
+        cursor: pointer;
+      }
+      tr.row-click:hover {
+        background: rgba(255, 255, 255, 0.02);
+      }
+      tr.row-missed {
+        background: rgba(255, 92, 92, 0.06);
+      }
+      .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        object-fit: cover;
+        border: 1px solid var(--border);
+        vertical-align: middle;
+      }
+      .avatar-ph {
+        display: inline-block;
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
       }
       .badge {
         display: inline-flex;
@@ -117,11 +161,105 @@
         padding: 16px;
         color: var(--muted);
       }
-      @media (max-width: 780px) {
-        th:nth-child(4),
-        td:nth-child(4),
-        th:nth-child(5),
-        td:nth-child(5) {
+      .app-err {
+        display: none;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 92, 92, 0.35);
+        background: rgba(255, 92, 92, 0.12);
+        margin-bottom: 12px;
+        font-size: 14px;
+      }
+      .app-err.visible {
+        display: block;
+      }
+      button.btn-invite {
+        background: var(--accent);
+        border-color: transparent;
+        color: #fff;
+        font-weight: 600;
+      }
+      button.btn-invite:hover {
+        border-color: transparent;
+        opacity: 0.95;
+      }
+      button.btn-invite.secondary {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        font-weight: 500;
+      }
+      .invite-block {
+        display: none;
+        margin-top: 12px;
+      }
+      .invite-block.visible {
+        display: block;
+      }
+      .invite-link-ro {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px;
+        margin-top: 8px;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        font-size: 13px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        resize: vertical;
+        min-height: 72px;
+      }
+      .invite-status {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+      .invite-status.ok {
+        color: var(--good);
+      }
+      .checkbox-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .checkbox-row input {
+        margin-top: 3px;
+      }
+      .json-pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        color: #c9d4e3;
+      }
+      .grid-2 {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        margin-top: 12px;
+      }
+      .sub-panel {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .sub-panel h3 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+      }
+      @media (max-width: 900px) {
+        .clients-table-wrap th:nth-child(n + 6),
+        .clients-table-wrap td:nth-child(n + 6) {
+          display: none;
+        }
+      }
+      @media (max-width: 640px) {
+        .clients-table-wrap th:nth-child(4),
+        .clients-table-wrap td:nth-child(4),
+        .clients-table-wrap th:nth-child(5),
+        .clients-table-wrap td:nth-child(5) {
           display: none;
         }
       }
@@ -130,43 +268,102 @@
   <body>
     <div class="wrap">
       <div class="top">
-        <div class="title">Админка — пользователи</div>
-        <div class="controls">
-          <select id="filter">
-            <option value="any">Все</option>
-            <option value="true">Анкета заполнена</option>
-            <option value="false">Анкета не заполнена</option>
-          </select>
-          <select id="sort">
-            <option value="questionnaireDate">Сортировка: анкета</option>
-          </select>
-          <select id="order">
-            <option value="desc">Новые сверху</option>
-            <option value="asc">Старые сверху</option>
-          </select>
-          <button id="reload">Обновить</button>
+        <div class="title">Админка</div>
+        <div class="nav-row" id="mainNav">
+          <button type="button" class="nav-btn active" data-view="clients">Клиенты</button>
+          <button type="button" class="nav-btn" data-view="invite">Приглашение</button>
+          <button type="button" class="nav-btn" data-view="settings">Настройки</button>
         </div>
       </div>
-      <div class="hint">Данные видны только админам. Фильтр работает по флагу анкеты.</div>
 
-      <div class="card">
-        <div id="state" class="empty">Загрузка…</div>
-        <table id="table" style="display: none">
-          <thead>
-            <tr>
-              <th>Пользователь</th>
-              <th>Telegram</th>
-              <th>Анкета</th>
-              <th>Создан</th>
-              <th>Анкета (кратко)</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
+      <div id="appErr" class="app-err"></div>
+
+      <section id="viewClients">
+        <div class="top" style="margin-top: 0">
+          <div class="hint" style="margin: 0; flex: 1">
+            Только ваши клиенты (привязка по инвайту). Другой админ не видит этот список.
+          </div>
+          <div class="controls">
+            <select id="filter" title="Фильтр по анкете">
+              <option value="any">Все клиенты</option>
+              <option value="true">Анкета заполнена</option>
+              <option value="false">Анкета не заполнена</option>
+            </select>
+            <select id="sort" title="Сортировка">
+              <option value="activity">Пропавшие / активность</option>
+              <option value="questionnaireDate">По дате анкеты</option>
+            </select>
+            <select id="order" title="Порядок">
+              <option value="desc">По убыванию</option>
+              <option value="asc">По возрастанию</option>
+            </select>
+            <button id="reload" type="button">Обновить</button>
+          </div>
+        </div>
+
+        <div class="card clients-table-wrap">
+          <div id="clientsState" class="empty">Загрузка…</div>
+          <table id="clientsTable" style="display: none">
+            <thead>
+              <tr>
+                <th>Фото</th>
+                <th>Клиент</th>
+                <th>Telegram</th>
+                <th>Анкета</th>
+                <th>Создан</th>
+                <th>Анкета (кратко)</th>
+                <th>Активность</th>
+                <th>% 7д</th>
+              </tr>
+            </thead>
+            <tbody id="clientsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="viewClientDetail" class="hidden">
+        <div class="card card-pad">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+            <button type="button" id="clientDetailBack">← К списку клиентов</button>
+            <div style="font-weight: 700">Карточка клиента</div>
+          </div>
+          <div id="clientDetailState" class="empty" style="margin-top: 12px">Загрузка…</div>
+          <div id="clientDetailBody" class="hidden"></div>
+        </div>
+      </section>
+
+      <section id="viewInvite" class="hidden">
+        <div class="card card-pad">
+          <h2 style="margin: 0 0 8px 0; font-size: 15px">Ссылка для клиента</h2>
+          <div class="hint" style="margin-bottom: 0">
+            Одноразовая приглашение для привязки к вам как к тренеру. После входа клиента по ссылке код перестанет действовать.
+          </div>
+          <button type="button" id="createInvite" class="btn-invite" style="margin-top: 12px; width: 100%">
+            Создать ссылку для клиента
+          </button>
+          <div id="inviteBlock" class="invite-block">
+            <div class="muted small" style="margin-top: 8px">Ссылка для отправки клиенту</div>
+            <textarea id="inviteLink" class="invite-link-ro" readonly rows="3"></textarea>
+            <button type="button" class="btn-invite secondary" id="copyInvite" style="margin-top: 10px; width: 100%">
+              Копировать
+            </button>
+            <div id="inviteStatus" class="invite-status"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="viewSettings" class="hidden">
+        <div class="card card-pad">
+          <h2 style="margin: 0 0 12px 0; font-size: 15px">Уведомления тренера</h2>
+          <div id="settingsState" class="empty">Загрузка…</div>
+          <label id="settingsRow" class="checkbox-row hidden">
+            <input type="checkbox" id="notifyMissed" />
+            <span>Получать уведомления о пропавших клиентах (2+ дня без активности)</span>
+          </label>
+        </div>
+      </section>
     </div>
 
     <script src="/admin/app.js"></script>
   </body>
 </html>
-
